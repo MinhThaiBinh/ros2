@@ -1,0 +1,6 @@
+# config/fitness_params.yaml
+fitness:
+  w_dist: 1.0
+  w_collision: 50.0
+  w_oscillation: 5.0
+  max_range_lidar: 2.0
