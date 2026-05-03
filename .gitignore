@@ -1,5 +1,5 @@
-logs/
-saved_models/
+# logs/
+# saved_models/
 build/
 install/
 log/
