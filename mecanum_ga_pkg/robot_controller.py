@@ -2,63 +2,64 @@ import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import LaserScan
 from geometry_msgs.msg import Twist
-from .network import MecanumBrain
+from std_msgs.msg import Float32MultiArray
+from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy, DurabilityPolicy
 import numpy as np
+from mecanum_ga_pkg.network import MecanumBrain
 
 class RobotController(Node):
     def __init__(self):
         super().__init__('robot_controller')
-        
-        # 1. Khởi tạo Brain (Neural Network) với 12 đầu vào
         self.brain = MecanumBrain(input_size=12, hidden_size=16, output_size=2)
         
-        # 2. Subscriber: Lấy dữ liệu thực từ Lidar
-        self.scan_sub = self.create_subscription(
-            LaserScan,
-            '/scan',
-            self.lidar_callback,
-            10)
-            
-        # 3. Publisher: Gửi lệnh điều khiển robot
-        self.cmd_pub = self.create_publisher(Twist, '/model/GA_8_TIA/cmd_vel', 10)
-        
-        self.get_logger().info('Robot Controller started. Working with REAL LIDAR data.')
+        qos_genome = QoSProfile(
+            reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL,
+            history=HistoryPolicy.KEEP_LAST,
+            depth=1
+        )
 
-    def lidar_callback(self, msg):
-        # 4. Xử lý dữ liệu Lidar (12 giá trị)
+        qos_lidar = QoSProfile(
+            reliability=ReliabilityPolicy.BEST_EFFORT,
+            history=HistoryPolicy.KEEP_LAST,
+            depth=5
+        )
+
+        self.scan_sub = self.create_subscription(LaserScan, '/scan', self.scan_callback, qos_lidar)
+        self.genome_sub = self.create_subscription(Float32MultiArray, '/robot_genome', self.genome_callback, qos_genome)
+        self.cmd_pub = self.create_publisher(Twist, '/cmd_vel', 10)
+        self.max_speed = 0.2 
+        self.get_logger().info('robot_controller STARTED with max_speed=0.2')
+
+    def genome_callback(self, msg):
+        genome = np.array(msg.data)
+        self.brain.set_genome(genome)
+
+    def scan_callback(self, msg):
+        if not hasattr(self.brain, 'weights_initialized') or not self.brain.weights_initialized:
+            self.cmd_pub.publish(Twist())
+            return
+
         ranges = np.array(msg.ranges)
+        ranges[np.isinf(ranges)] = 2.0 
+        input_data = ranges / 2.0 
         
-        # Xử lý các giá trị inf (ngoài tầm quét) thành 3.0m
-        ranges = np.where(np.isinf(ranges), msg.range_max, ranges)
-        ranges = np.where(np.isnan(ranges), msg.range_max, ranges)
+        outputs = self.brain.forward(input_data)
+        vx, vy = float(outputs[0]), float(outputs[1])
         
-        # 5. Đưa dữ liệu thực vào Neural Network
-        outputs = self.brain.forward(ranges)
+        cmd = Twist()
+        cmd.linear.x = float(vx * self.max_speed)
+        cmd.linear.y = float(vy * self.max_speed)
+        self.cmd_pub.publish(cmd)
         
-        # 6. Gửi lệnh điều khiển dựa trên output của não
-        vx = float(outputs[0])
-        vy = float(outputs[1])
-        
-        msg_twist = Twist()
-        msg_twist.linear.x = vx * 0.3
-        msg_twist.linear.y = vy * 0.3
-        self.cmd_pub.publish(msg_twist)
-        
-        # Log kết quả mỗi 1 giây
-        self.get_logger().info(f'Real Lidar -> Vx: {vx:.2f}, Vy: {vy:.2f}', throttle_duration_sec=1.0)
+        self.get_logger().info(f"REAL SPEED -> x: {cmd.linear.x:.4f}", throttle_duration_sec=2.0)
 
 def main(args=None):
     rclpy.init(args=args)
     node = RobotController()
-    try:
-        rclpy.spin(node)
-    except KeyboardInterrupt:
-        pass
-    finally:
-        stop_msg = Twist()
-        node.cmd_pub.publish(stop_msg)
-        node.destroy_node()
-        rclpy.shutdown()
+    rclpy.spin(node)
+    node.destroy_node()
+    rclpy.shutdown()
 
 if __name__ == '__main__':
     main()

@@ -6,8 +6,9 @@ import numpy as np
 
 class Individual:
     def __init__(self, genome_length):
-        self.genome = [random.uniform(-1, 1) for _ in range(genome_length)]
-        self.fitness = -1000.0 
+        # KHỞI TẠO RANDOM THỰC SỰ (không chỉ là zero hoặc gần zero)
+        self.genome = np.random.uniform(-1.0, 1.0, genome_length).tolist()
+        self.fitness = 0.0 
 
 class GeneticAlgorithm:
     def __init__(self, population_size, genome_length):

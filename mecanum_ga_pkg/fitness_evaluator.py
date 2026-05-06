@@ -1,5 +1,7 @@
 import yaml
 import math
+import numpy as np
+import time
 
 class FitnessEvaluator:
     def __init__(self, config_path='config/fitness_params.yaml'):
@@ -37,10 +39,20 @@ class FitnessEvaluator:
         self.last_pose = (current_x, current_y)
 
         # 2. Kiểm tra Va chạm (Lidar)
-        # Chỉ cần 1 tia < 0.15m là đã va chạm
-        if len(lidar_ranges) > 0:
-            if min(lidar_ranges) < 0.15:
+        # Lọc bỏ các giá trị <= 0 (lỗi) và nan
+        valid_ranges = [r for r in lidar_ranges if r > 0 and not np.isnan(r)]
+        
+        if len(valid_ranges) > 0:
+            min_dist = min(valid_ranges)
+            # Log mỗi 1 giây để tránh tràn log
+            if time.time() - getattr(self, '_last_log_time', 0) > 1.0:
+                print(f"DEBUG: Lidar Min Dist: {min_dist:.3f}m")
+                self._last_log_time = time.time()
+
+            # Ngưỡng va chạm: 0.18m
+            if min_dist < 0.18:
                 self.collision_detected = True
+                print(f"!!! COLLISION DETECTED !!! Min Dist: {min_dist:.3f}m")
 
         # 3. Tính Rung lắc (Stability) - Tích lũy sự thay đổi vận tốc
         osc = abs(current_vx - self.last_vel[0]) + abs(current_vy - self.last_vel[1])
